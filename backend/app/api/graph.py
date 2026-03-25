@@ -245,8 +245,9 @@ def generate_ontology():
                 "total_text_length": project.total_text_length
             }
         })
-        
+
     except Exception as e:
+        logger.exception(f"生成本体失败: {e}")
         return jsonify({
             "success": False,
             "error": str(e),
