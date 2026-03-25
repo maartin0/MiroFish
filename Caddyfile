@@ -1,0 +1,18 @@
+{$CADDY_DOMAIN} {
+    basic_auth {
+        {$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+    }
+
+    handle /mirofish/api/* {
+        uri strip_prefix /mirofish
+        reverse_proxy mirofish:5001
+    }
+
+    # Frontend (static build)
+    handle /mirofish* {
+        uri strip_prefix /mirofish
+        root * /app/frontend/dist
+        try_files {path} /index.html
+        file_server
+    }
+}
