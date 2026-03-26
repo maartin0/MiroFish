@@ -684,10 +684,44 @@ watch(() => props.systemLogs?.length, () => {
   })
 })
 
+const checkAndResume = async () => {
+  if (!props.simulationId) return
+
+  try {
+    const res = await getRunStatus(props.simulationId)
+    if (res.success && res.data) {
+      const status = res.data.runner_status
+
+      if (status === 'running') {
+        addLog('✓ Simulation already running — reconnecting...')
+        phase.value = 1
+        runStatus.value = res.data
+        emit('update-status', 'processing')
+        startStatusPolling()
+        startDetailPolling()
+        return
+      }
+
+      if (status === 'completed' || status === 'stopped') {
+        addLog('Simulation already completed.')
+        phase.value = 2
+        runStatus.value = res.data
+        emit('update-status', 'completed')
+        return
+      }
+    }
+  } catch (err) {
+    addLog(`Could not check simulation status: ${err.message}`)
+  }
+
+  // Not running — start fresh
+  doStartSimulation()
+}
+
 onMounted(() => {
   addLog('Step3 模拟运行初始化')
   if (props.simulationId) {
-    doStartSimulation()
+    checkAndResume()
   }
 })
 

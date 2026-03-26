@@ -5,6 +5,7 @@ import SimulationView from '../views/SimulationView.vue'
 import SimulationRunView from '../views/SimulationRunView.vue'
 import ReportView from '../views/ReportView.vue'
 import InteractionView from '../views/InteractionView.vue'
+import { saveSession } from '../store/workflowSession'
 
 const routes = [
   {
@@ -47,6 +48,14 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes
+})
+
+router.afterEach((to) => {
+  if (to.name === 'Home') {
+    // Don't overwrite session when going home — user may want to resume
+  } else {
+    saveSession(to.name, to.params, to.query)
+  }
 })
 
 export default router

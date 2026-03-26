@@ -10,6 +10,14 @@
       </div>
     </nav>
 
+    <!-- Resume session banner -->
+    <div v-if="activeSession" class="resume-banner">
+      <span class="resume-icon">◈</span>
+      <span class="resume-text">Session in progress: <strong>{{ activeSession.label }}</strong></span>
+      <button class="resume-btn" @click="resumeSession">Resume →</button>
+      <button class="dismiss-btn" @click="dismissSession">✕</button>
+    </div>
+
     <div class="main-content">
       <!-- 上半部分：Hero 区域 -->
       <section class="hero-section">
@@ -207,11 +215,33 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
+import { getSession, clearSession } from '../store/workflowSession'
 
 const router = useRouter()
+
+// Session resume
+const activeSession = ref(null)
+
+const resumeSession = () => {
+  if (!activeSession.value) return
+  router.push({
+    name: activeSession.value.routeName,
+    params: activeSession.value.params,
+    query: activeSession.value.query,
+  })
+}
+
+const dismissSession = () => {
+  clearSession()
+  activeSession.value = null
+}
+
+onMounted(() => {
+  activeSession.value = getSession()
+})
 
 // 表单数据
 const formData = ref({
@@ -306,6 +336,58 @@ const startSimulation = () => {
 </script>
 
 <style scoped>
+/* Resume banner */
+.resume-banner {
+  background: #000;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 40px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.resume-icon {
+  color: #FF4500;
+  font-size: 1rem;
+}
+
+.resume-text {
+  flex: 1;
+}
+
+.resume-btn {
+  background: #FF4500;
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: opacity 0.2s;
+}
+
+.resume-btn:hover {
+  opacity: 0.85;
+}
+
+.dismiss-btn {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.dismiss-btn:hover {
+  color: #fff;
+}
+
 /* 全局变量与重置 */
 :root {
   --black: #000000;
