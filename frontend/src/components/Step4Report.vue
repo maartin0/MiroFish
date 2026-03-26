@@ -264,31 +264,31 @@
                   <template v-if="log.action === 'tool_result'">
                     <div class="result-wrapper" :class="'result-' + log.details?.tool_name">
                       <!-- Hide result-meta for tools that show stats in their own header -->
-                      <div v-if="!['interview_agents', 'insight_forge', 'panorama_search', 'quick_search'].includes(log.details?.tool_name)" class="result-meta">
+                      <div v-if="!['interview_agents', 'insight_forge', 'panorama_search', 'quick_search'].includes(log.details?.tool_name ?? '')" class="result-meta">
                         <span class="result-tool">{{ getToolDisplayName(log.details?.tool_name) }}</span>
                         <span class="result-size">{{ formatResultSize(log.details?.result_length) }}</span>
                       </div>
-                      
+
                       <!-- Structured Result Display -->
                       <div v-if="!showRawResult[log.timestamp]" class="result-structured">
                         <!-- Interview Agents - Special Display -->
                         <template v-if="log.details?.tool_name === 'interview_agents'">
-                          <InterviewDisplay :result="parseInterview(log.details.result)" :result-length="log.details?.result_length" />
+                          <InterviewDisplay :result="parseInterview(log.details.result ?? '')" :result-length="log.details?.result_length" />
                         </template>
-                        
+
                         <!-- Insight Forge -->
                         <template v-else-if="log.details?.tool_name === 'insight_forge'">
-                          <InsightDisplay :result="parseInsightForge(log.details.result)" :result-length="log.details?.result_length" />
+                          <InsightDisplay :result="parseInsightForge(log.details.result ?? '')" :result-length="log.details?.result_length" />
                         </template>
-                        
+
                         <!-- Panorama Search -->
                         <template v-else-if="log.details?.tool_name === 'panorama_search'">
-                          <PanoramaDisplay :result="parsePanorama(log.details.result)" :result-length="log.details?.result_length" />
+                          <PanoramaDisplay :result="parsePanorama(log.details.result ?? '')" :result-length="log.details?.result_length" />
                         </template>
-                        
+
                         <!-- Quick Search -->
                         <template v-else-if="log.details?.tool_name === 'quick_search'">
-                          <QuickSearchDisplay :result="parseQuickSearch(log.details.result)" :result-length="log.details?.result_length" />
+                          <QuickSearchDisplay :result="parseQuickSearch(log.details.result ?? '')" :result-length="log.details?.result_length" />
                         </template>
                         
                         <!-- Default -->
@@ -389,22 +389,27 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, h, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAgentLog, getConsoleLog } from '../api/report'
+import type { SystemLog, AgentLog, ReportOutline } from '../types'
 
 const router = useRouter()
 
-const props = defineProps({
-  reportId: String,
-  simulationId: String,
-  systemLogs: Array
-})
+interface Props {
+  reportId?: string
+  simulationId?: string
+  systemLogs?: SystemLog[]
+}
 
-const emit = defineEmits(['add-log', 'update-status'])
+const props = withDefaults(defineProps<Props>(), { systemLogs: () => [] })
 
-// Navigation
+const emit = defineEmits<{
+  'add-log': [msg: string]
+  'update-status': [status: 'processing' | 'completed' | 'error']
+}>()
+
 const goToInteraction = () => {
   if (props.reportId) {
     router.push({ name: 'Interaction', params: { reportId: props.reportId } })
@@ -412,27 +417,27 @@ const goToInteraction = () => {
 }
 
 // State
-const agentLogs = ref([])
-const consoleLogs = ref([])
+const agentLogs = ref<AgentLog[]>([])
+const consoleLogs = ref<string[]>([])
 const agentLogLine = ref(0)
 const consoleLogLine = ref(0)
-const reportOutline = ref(null)
-const currentSectionIndex = ref(null)
-const generatedSections = ref({})
-const expandedContent = ref(new Set())
-const expandedLogs = ref(new Set())
-const collapsedSections = ref(new Set())
+const reportOutline = ref<ReportOutline | null>(null)
+const currentSectionIndex = ref<number | null>(null)
+const generatedSections = ref<Record<number, string>>({})
+const expandedContent = ref(new Set<number>())
+const expandedLogs = ref(new Set<string>())
+const collapsedSections = ref(new Set<number>())
 const isComplete = ref(false)
-const startTime = ref(null)
-const leftPanel = ref(null)
-const rightPanel = ref(null)
-const logContent = ref(null)
-const showRawResult = reactive({})
+const startTime = ref<number | null>(null)
+const leftPanel = ref<HTMLElement | null>(null)
+const rightPanel = ref<HTMLElement | null>(null)
+const logContent = ref<HTMLElement | null>(null)
+const showRawResult = reactive<Record<string, boolean>>({})
 
 // Toggle functions
-const toggleRawResult = (timestamp, event) => {
+const toggleRawResult = (timestamp: string, event?: MouseEvent) => {
   // 保存按钮相对于视口的位置
-  const button = event?.target
+  const button = event?.target as HTMLElement | null
   const buttonRect = button?.getBoundingClientRect()
   const buttonTopBeforeToggle = buttonRect?.top
   
@@ -447,12 +452,12 @@ const toggleRawResult = (timestamp, event) => {
       const scrollDelta = buttonTopAfterToggle - buttonTopBeforeToggle
       
       // 调整滚动位置
-      rightPanel.value.scrollTop += scrollDelta
+      rightPanel.value!.scrollTop += scrollDelta
     })
   }
 }
 
-const toggleSectionContent = (idx) => {
+const toggleSectionContent = (idx: number) => {
   if (!generatedSections.value[idx + 1]) return
   const newSet = new Set(expandedContent.value)
   if (newSet.has(idx)) {
@@ -463,7 +468,7 @@ const toggleSectionContent = (idx) => {
   expandedContent.value = newSet
 }
 
-const toggleSectionCollapse = (idx) => {
+const toggleSectionCollapse = (idx: number) => {
   // 只有已完成的章节才能折叠
   if (!generatedSections.value[idx + 1]) return
   const newSet = new Set(collapsedSections.value)
@@ -475,7 +480,7 @@ const toggleSectionCollapse = (idx) => {
   collapsedSections.value = newSet
 }
 
-const toggleLogExpand = (log) => {
+const toggleLogExpand = (log: AgentLog) => {
   const newSet = new Set(expandedLogs.value)
   if (newSet.has(log.timestamp)) {
     newSet.delete(log.timestamp)
@@ -485,7 +490,7 @@ const toggleLogExpand = (log) => {
   expandedLogs.value = newSet
 }
 
-const isLogCollapsed = (log) => {
+const isLogCollapsed = (log: AgentLog): boolean => {
   if (['tool_call', 'tool_result', 'llm_response'].includes(log.action)) {
     return !expandedLogs.value.has(log.timestamp)
   }
@@ -493,7 +498,7 @@ const isLogCollapsed = (log) => {
 }
 
 // Tool configurations with display names and colors
-const toolConfig = {
+const toolConfig: Record<string, { name: string; color: string; icon: string }> = {
   'insight_forge': {
     name: 'Deep Insight',
     color: 'purple',
@@ -526,21 +531,32 @@ const toolConfig = {
   }
 }
 
-const getToolDisplayName = (toolName) => {
+const getToolDisplayName = (toolName: string | undefined): string => {
+  if (!toolName) return ''
   return toolConfig[toolName]?.name || toolName
 }
 
-const getToolColor = (toolName) => {
+const getToolColor = (toolName: string | undefined): string => {
+  if (!toolName) return 'gray'
   return toolConfig[toolName]?.color || 'gray'
 }
 
-const getToolIcon = (toolName) => {
+const getToolIcon = (toolName: string | undefined): string => {
+  if (!toolName) return 'tool'
   return toolConfig[toolName]?.icon || 'tool'
 }
 
 // Parse functions
-const parseInsightForge = (text) => {
-  const result = {
+const parseInsightForge = (text: string) => {
+  const result: {
+    query: string
+    simulationRequirement: string
+    stats: { facts: number; entities: number; relationships: number }
+    subQueries: string[]
+    facts: string[]
+    entities: { name: string; type: string; summary: string; relatedFactsCount: number }[]
+    relations: { source: string; relation: string; target: string }[]
+  } = {
     query: '',
     simulationRequirement: '',
     stats: { facts: 0, entities: 0, relationships: 0 },
@@ -613,7 +629,7 @@ const parseInsightForge = (text) => {
           return { source: match[1].trim(), relation: match[2].trim(), target: match[3].trim() }
         }
         return null
-      }).filter(Boolean)
+      }).filter((x): x is { source: string; relation: string; target: string } => x !== null)
     }
   } catch (e) {
     console.warn('Parse insight_forge failed:', e)
@@ -622,8 +638,14 @@ const parseInsightForge = (text) => {
   return result
 }
 
-const parsePanorama = (text) => {
-  const result = {
+const parsePanorama = (text: string) => {
+  const result: {
+    query: string
+    stats: { nodes: number; edges: number; activeFacts: number; historicalFacts: number }
+    activeFacts: string[]
+    historicalFacts: string[]
+    entities: { name: string; type: string }[]
+  } = {
     query: '',
     stats: { nodes: 0, edges: 0, activeFacts: 0, historicalFacts: 0 },
     activeFacts: [],
@@ -675,7 +697,7 @@ const parsePanorama = (text) => {
         const match = l.match(/^-\s*\*\*(.+?)\*\*\s*\((.+?)\)/)
         if (match) return { name: match[1].trim(), type: match[2].trim() }
         return null
-      }).filter(Boolean)
+      }).filter((x): x is { name: string; type: string } => x !== null)
     }
   } catch (e) {
     console.warn('Parse panorama failed:', e)
@@ -684,8 +706,29 @@ const parsePanorama = (text) => {
   return result
 }
 
-const parseInterview = (text) => {
-  const result = {
+interface InterviewEntry {
+  num: number
+  title: string
+  name: string
+  role: string
+  bio: string
+  selectionReason: string
+  questions: string[]
+  twitterAnswer: string
+  redditAnswer: string
+  quotes: string[]
+}
+
+const parseInterview = (text: string) => {
+  const result: {
+    topic: string
+    agentCount: string
+    successCount: number
+    totalCount: number
+    selectionReason: string
+    interviews: InterviewEntry[]
+    summary: string
+  } = {
     topic: '',
     agentCount: '',
     successCount: 0,
@@ -715,13 +758,13 @@ const parseInterview = (text) => {
     }
     
     // 解析每个人的选择理由
-    const parseIndividualReasons = (reasonText) => {
-      const reasons = {}
+    const parseIndividualReasons = (reasonText: string) => {
+      const reasons: Record<string, string> = {}
       if (!reasonText) return reasons
       
       const lines = reasonText.split(/\n+/)
-      let currentName = null
-      let currentReason = []
+      let currentName: string | null = null
+      let currentReason: string[] = []
       
       for (const line of lines) {
         let headerMatch = null
@@ -783,8 +826,8 @@ const parseInterview = (text) => {
     // 提取每个采访记录
     const interviewBlocks = text.split(/#### 采访 #\d+:/).slice(1)
     
-    interviewBlocks.forEach((block, index) => {
-      const interview = {
+    interviewBlocks.forEach((block: string, index: number) => {
+      const interview: InterviewEntry = {
         num: index + 1,
         title: '',
         name: '',
@@ -899,8 +942,14 @@ const parseInterview = (text) => {
   return result
 }
 
-const parseQuickSearch = (text) => {
-  const result = {
+const parseQuickSearch = (text: string) => {
+  const result: {
+    query: string
+    count: number
+    facts: string[]
+    edges: { source: string; relation: string; target: string }[]
+    nodes: { name: string; type: string }[]
+  } = {
     query: '',
     count: 0,
     facts: [],
@@ -934,9 +983,9 @@ const parseQuickSearch = (text) => {
           return { source: match[1].trim(), relation: match[2].trim(), target: match[3].trim() }
         }
         return null
-      }).filter(Boolean)
+      }).filter((x): x is { source: string; relation: string; target: string } => x !== null)
     }
-    
+
     // 尝试提取节点信息（如果有）
     const nodesSection = text.match(/### 相关节点:\n([\s\S]*?)(?=\n###|$)/)
     if (nodesSection) {
@@ -947,7 +996,7 @@ const parseQuickSearch = (text) => {
         const simpleMatch = l.match(/^-\s*(.+)$/)
         if (simpleMatch) return { name: simpleMatch[1].trim(), type: '' }
         return null
-      }).filter(Boolean)
+      }).filter((x): x is { name: string; type: string } => x !== null)
     }
   } catch (e) {
     console.warn('Parse quick_search failed:', e)
@@ -961,22 +1010,22 @@ const parseQuickSearch = (text) => {
 // Insight Display Component - Enhanced with full data rendering (Interview-like style)
 const InsightDisplay = {
   props: ['result', 'resultLength'],
-  setup(props) {
+  setup(props: any) {
     const activeTab = ref('facts') // 'facts', 'entities', 'relations', 'subqueries'
     const expandedFacts = ref(false)
     const expandedEntities = ref(false)
     const expandedRelations = ref(false)
     const INITIAL_SHOW_COUNT = 5
-    
+
     // Format result size for display
-    const formatSize = (length) => {
+    const formatSize = (length: number | undefined): string => {
       if (!length) return ''
       if (length >= 1000) {
         return `${(length / 1000).toFixed(1)}k chars`
       }
       return `${length} chars`
     }
-    
+
     return () => h('div', { class: 'insight-display' }, [
       // Header Section - like interview header
       h('div', { class: 'insight-header' }, [
@@ -1045,7 +1094,7 @@ const InsightDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.facts.length} total`)
           ]),
           h('div', { class: 'facts-list' },
-            (expandedFacts.value ? props.result.facts : props.result.facts.slice(0, INITIAL_SHOW_COUNT)).map((fact, i) => 
+            (expandedFacts.value ? props.result.facts : props.result.facts.slice(0, INITIAL_SHOW_COUNT)).map((fact: any, i: number) =>
               h('div', { class: 'fact-item', key: i }, [
                 h('span', { class: 'fact-number' }, i + 1),
                 h('div', { class: 'fact-content' }, fact)
@@ -1065,7 +1114,7 @@ const InsightDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.entities.length} total`)
           ]),
           h('div', { class: 'entities-grid' },
-            (expandedEntities.value ? props.result.entities : props.result.entities.slice(0, 12)).map((entity, i) => 
+            (expandedEntities.value ? props.result.entities : props.result.entities.slice(0, 12)).map((entity: any, i: number) =>
               h('div', { class: 'entity-tag', key: i, title: entity.summary || '' }, [
                 h('span', { class: 'entity-name' }, entity.name),
                 h('span', { class: 'entity-type' }, entity.type),
@@ -1086,7 +1135,7 @@ const InsightDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.relations.length} total`)
           ]),
           h('div', { class: 'relations-list' },
-            (expandedRelations.value ? props.result.relations : props.result.relations.slice(0, INITIAL_SHOW_COUNT)).map((rel, i) => 
+            (expandedRelations.value ? props.result.relations : props.result.relations.slice(0, INITIAL_SHOW_COUNT)).map((rel: any, i: number) =>
               h('div', { class: 'relation-item', key: i }, [
                 h('span', { class: 'rel-source' }, rel.source),
                 h('span', { class: 'rel-arrow' }, [
@@ -1111,7 +1160,7 @@ const InsightDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.subQueries.length} total`)
           ]),
           h('div', { class: 'subqueries-list' },
-            props.result.subQueries.map((sq, i) => 
+            props.result.subQueries.map((sq: any, i: number) =>
               h('div', { class: 'subquery-item', key: i }, [
                 h('span', { class: 'subquery-number' }, `Q${i + 1}`),
                 h('div', { class: 'subquery-text' }, sq)
@@ -1132,15 +1181,15 @@ const InsightDisplay = {
 // Panorama Display Component - Enhanced with Active/Historical tabs
 const PanoramaDisplay = {
   props: ['result', 'resultLength'],
-  setup(props) {
+  setup(props: any) {
     const activeTab = ref('active') // 'active', 'historical', 'entities'
     const expandedActive = ref(false)
     const expandedHistorical = ref(false)
     const expandedEntities = ref(false)
     const INITIAL_SHOW_COUNT = 5
-    
+
     // Format result size for display
-    const formatSize = (length) => {
+    const formatSize = (length: number | undefined): string => {
       if (!length) return ''
       if (length >= 1000) {
         return `${(length / 1000).toFixed(1)}k chars`
@@ -1201,7 +1250,7 @@ const PanoramaDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.activeFacts.length} total`)
           ]),
           props.result.activeFacts.length > 0 ? h('div', { class: 'facts-list' },
-            (expandedActive.value ? props.result.activeFacts : props.result.activeFacts.slice(0, INITIAL_SHOW_COUNT)).map((fact, i) =>
+            (expandedActive.value ? props.result.activeFacts : props.result.activeFacts.slice(0, INITIAL_SHOW_COUNT)).map((fact: any, i: number) =>
               h('div', { class: 'fact-item active', key: i }, [
                 h('span', { class: 'fact-number' }, i + 1),
                 h('div', { class: 'fact-content' }, fact)
@@ -1221,7 +1270,7 @@ const PanoramaDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.historicalFacts.length} total`)
           ]),
           props.result.historicalFacts.length > 0 ? h('div', { class: 'facts-list' },
-            (expandedHistorical.value ? props.result.historicalFacts : props.result.historicalFacts.slice(0, INITIAL_SHOW_COUNT)).map((fact, i) => 
+            (expandedHistorical.value ? props.result.historicalFacts : props.result.historicalFacts.slice(0, INITIAL_SHOW_COUNT)).map((fact: any, i: number) =>
               h('div', { class: 'fact-item historical', key: i }, [
                 h('span', { class: 'fact-number' }, i + 1),
                 h('div', { class: 'fact-content' }, [
@@ -1253,7 +1302,7 @@ const PanoramaDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.entities.length} total`)
           ]),
           props.result.entities.length > 0 ? h('div', { class: 'entities-grid' },
-            (expandedEntities.value ? props.result.entities : props.result.entities.slice(0, 8)).map((entity, i) => 
+            (expandedEntities.value ? props.result.entities : props.result.entities.slice(0, 8)).map((entity: any, i: number) =>
               h('div', { class: 'entity-tag', key: i }, [
                 h('span', { class: 'entity-name' }, entity.name),
                 entity.type && h('span', { class: 'entity-type' }, entity.type)
@@ -1273,18 +1322,18 @@ const PanoramaDisplay = {
 // Interview Display Component - Conversation Style (Q&A Format)
 const InterviewDisplay = {
   props: ['result', 'resultLength'],
-  setup(props) {
+  setup(props: any) {
     // Format result size for display
-    const formatSize = (length) => {
+    const formatSize = (length: number | undefined): string => {
       if (!length) return ''
       if (length >= 1000) {
         return `${(length / 1000).toFixed(1)}k chars`
       }
       return `${length} chars`
     }
-    
+
     // Clean quote text - remove leading list numbers to avoid double numbering
-    const cleanQuoteText = (text) => {
+    const cleanQuoteText = (text: string): string => {
       if (!text) return ''
       // Remove leading patterns like "1. ", "2. ", "1、", "（1）", "(1)" etc.
       return text.replace(/^\s*\d+[\.\、\)）]\s*/, '').trim()
@@ -1293,21 +1342,21 @@ const InterviewDisplay = {
     const activeIndex = ref(0)
     const expandedAnswers = ref(new Set())
     // 为每个问题-回答对维护独立的平台选择状态
-    const platformTabs = reactive({}) // { 'agentIdx-qIdx': 'twitter' | 'reddit' }
-    
+    const platformTabs = reactive<Record<string, string>>({}) // { 'agentIdx-qIdx': 'twitter' | 'reddit' }
+
     // 获取某个问题的当前平台选择
-    const getPlatformTab = (agentIdx, qIdx) => {
+    const getPlatformTab = (agentIdx: number, qIdx: number): string => {
       const key = `${agentIdx}-${qIdx}`
       return platformTabs[key] || 'twitter'
     }
-    
+
     // 设置某个问题的平台选择
-    const setPlatformTab = (agentIdx, qIdx, platform) => {
+    const setPlatformTab = (agentIdx: number, qIdx: number, platform: string) => {
       const key = `${agentIdx}-${qIdx}`
       platformTabs[key] = platform
     }
-    
-    const toggleAnswer = (key) => {
+
+    const toggleAnswer = (key: string) => {
       const newSet = new Set(expandedAnswers.value)
       if (newSet.has(key)) {
         newSet.delete(key)
@@ -1317,21 +1366,21 @@ const InterviewDisplay = {
       expandedAnswers.value = newSet
     }
     
-    const formatAnswer = (text, expanded) => {
+    const formatAnswer = (text: string, expanded: boolean): string => {
       if (!text) return ''
       if (expanded || text.length <= 400) return text
       return text.substring(0, 400) + '...'
     }
-    
+
     // 检查是否为平台占位文本
-    const isPlaceholderText = (text) => {
+    const isPlaceholderText = (text: string | null | undefined): boolean => {
       if (!text) return true
       const t = text.trim()
       return t === '（该平台未获得回复）' || t === '(该平台未获得回复)' || t === '[无回复]'
     }
 
     // 尝试按问题编号分割回答
-    const splitAnswerByQuestions = (answerText, questionCount) => {
+    const splitAnswerByQuestions = (answerText: string, questionCount: number): string[] => {
       if (!answerText || questionCount <= 0) return [answerText]
       if (isPlaceholderText(answerText)) return ['']
 
@@ -1394,7 +1443,7 @@ const InterviewDisplay = {
     }
     
     // 获取某个问题对应的回答
-    const getAnswerForQuestion = (interview, qIdx, platform) => {
+    const getAnswerForQuestion = (interview: any, qIdx: number, platform: string): string => {
       const answer = platform === 'twitter' ? interview.twitterAnswer : (interview.redditAnswer || interview.twitterAnswer)
       if (!answer || isPlaceholderText(answer)) return answer || ''
 
@@ -1411,7 +1460,7 @@ const InterviewDisplay = {
     }
     
     // 检查某个问题是否有双平台回答（过滤占位文本）
-    const hasMultiplePlatforms = (interview, qIdx) => {
+    const hasMultiplePlatforms = (interview: any, qIdx: number): boolean => {
       if (!interview.twitterAnswer || !interview.redditAnswer) return false
       const twitterAnswer = getAnswerForQuestion(interview, qIdx, 'twitter')
       const redditAnswer = getAnswerForQuestion(interview, qIdx, 'reddit')
@@ -1443,7 +1492,7 @@ const InterviewDisplay = {
       
       // Agent Selector Tabs
       props.result.interviews.length > 0 && h('div', { class: 'agent-tabs' }, 
-        props.result.interviews.map((interview, i) => h('button', {
+        props.result.interviews.map((interview: any, i: number) => h('button', {
           class: ['agent-tab', { active: activeIndex.value === i }],
           key: i,
           onClick: () => { activeIndex.value = i }
@@ -1476,7 +1525,7 @@ const InterviewDisplay = {
           (props.result.interviews[activeIndex.value]?.questions?.length > 0 
             ? props.result.interviews[activeIndex.value].questions 
             : [props.result.interviews[activeIndex.value]?.question || 'No question available']
-          ).map((question, qIdx) => {
+          ).map((question: any, qIdx: number) => {
             const interview = props.result.interviews[activeIndex.value]
             const currentPlatform = getPlatformTab(activeIndex.value, qIdx)
             const answerText = getAnswerForQuestion(interview, qIdx, currentPlatform)
@@ -1548,7 +1597,7 @@ const InterviewDisplay = {
         props.result.interviews[activeIndex.value]?.quotes?.length > 0 && h('div', { class: 'quotes-section' }, [
           h('div', { class: 'quotes-header' }, 'Key Quotes'),
           h('div', { class: 'quotes-list' },
-            props.result.interviews[activeIndex.value].quotes.slice(0, 3).map((quote, qi) => {
+            props.result.interviews[activeIndex.value].quotes.slice(0, 3).map((quote: any, qi: number) => {
               const cleanedQuote = cleanQuoteText(quote)
               const displayQuote = cleanedQuote.length > 200 ? cleanedQuote.substring(0, 200) + '...' : cleanedQuote
               return h('blockquote', { 
@@ -1576,18 +1625,18 @@ const InterviewDisplay = {
 // Quick Search Display Component - Enhanced with full data rendering
 const QuickSearchDisplay = {
   props: ['result', 'resultLength'],
-  setup(props) {
+  setup(props: any) {
     const activeTab = ref('facts') // 'facts', 'edges', 'nodes'
     const expandedFacts = ref(false)
     const INITIAL_SHOW_COUNT = 5
-    
+
     // Check if there are edges or nodes to show tabs
     const hasEdges = computed(() => props.result.edges && props.result.edges.length > 0)
     const hasNodes = computed(() => props.result.nodes && props.result.nodes.length > 0)
     const showTabs = computed(() => hasEdges.value || hasNodes.value)
-    
+
     // Format result size for display
-    const formatSize = (length) => {
+    const formatSize = (length: number | undefined): string => {
       if (!length) return ''
       if (length >= 1000) {
         return `${(length / 1000).toFixed(1)}k chars`
@@ -1646,7 +1695,7 @@ const QuickSearchDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.facts.length} total`)
           ]),
           props.result.facts.length > 0 ? h('div', { class: 'facts-list' },
-            (expandedFacts.value ? props.result.facts : props.result.facts.slice(0, INITIAL_SHOW_COUNT)).map((fact, i) => 
+            (expandedFacts.value ? props.result.facts : props.result.facts.slice(0, INITIAL_SHOW_COUNT)).map((fact: any, i: number) =>
               h('div', { class: 'fact-item', key: i }, [
                 h('span', { class: 'fact-number' }, i + 1),
                 h('div', { class: 'fact-content' }, fact)
@@ -1666,7 +1715,7 @@ const QuickSearchDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.edges.length} total`)
           ]),
           h('div', { class: 'edges-list' },
-            props.result.edges.map((edge, i) => 
+            props.result.edges.map((edge: any, i: number) =>
               h('div', { class: 'edge-item', key: i }, [
                 h('span', { class: 'edge-source' }, edge.source),
                 h('span', { class: 'edge-arrow' }, [
@@ -1687,7 +1736,7 @@ const QuickSearchDisplay = {
             h('span', { class: 'panel-count' }, `${props.result.nodes.length} total`)
           ]),
           h('div', { class: 'nodes-grid' },
-            props.result.nodes.map((node, i) => 
+            props.result.nodes.map((node: any, i: number) =>
               h('div', { class: 'node-tag', key: i }, [
                 h('span', { class: 'node-name' }, node.name),
                 node.type && h('span', { class: 'node-type' }, node.type)
@@ -1764,26 +1813,34 @@ const isFinalizing = computed(() => {
   return !isComplete.value && isPlanningDone.value && totalSections.value > 0 && completedSections.value >= totalSections.value
 })
 
+interface WorkflowStep {
+  key: string
+  noLabel: string
+  title: string
+  status: 'todo' | 'active' | 'done'
+  meta: string
+}
+
 // 当前活跃的步骤（用于顶部显示）
-const activeStep = computed(() => {
+const activeStep = computed((): WorkflowStep => {
   const steps = workflowSteps.value
   // 找到当前 active 的步骤
   const active = steps.find(s => s.status === 'active')
   if (active) return active
-  
+
   // 如果没有 active，返回最后一个 done 的步骤
   const doneSteps = steps.filter(s => s.status === 'done')
   if (doneSteps.length > 0) return doneSteps[doneSteps.length - 1]
-  
+
   // 否则返回第一个步骤
-  return steps[0] || { noLabel: '--', title: 'Waiting to start', status: 'todo', meta: '' }
+  return steps[0] || { key: 'waiting', noLabel: '--', title: 'Waiting to start', status: 'todo', meta: '' }
 })
 
-const workflowSteps = computed(() => {
-  const steps = []
+const workflowSteps = computed((): WorkflowStep[] => {
+  const steps: WorkflowStep[] = []
 
   // Planning / Outline
-  const planningStatus = isPlanningDone.value ? 'done' : (isPlanningStarted.value ? 'active' : 'todo')
+  const planningStatus: WorkflowStep['status'] = isPlanningDone.value ? 'done' : (isPlanningStarted.value ? 'active' : 'todo')
   steps.push({
     key: 'planning',
     noLabel: 'PL',
@@ -1796,7 +1853,7 @@ const workflowSteps = computed(() => {
   const sections = reportOutline.value?.sections || []
   sections.forEach((section, i) => {
     const idx = i + 1
-    const status = (isComplete.value || !!generatedSections.value[idx])
+    const status: WorkflowStep['status'] = (isComplete.value || !!generatedSections.value[idx])
       ? 'done'
       : (activeSectionIndex.value === idx ? 'active' : 'todo')
 
@@ -1810,7 +1867,7 @@ const workflowSteps = computed(() => {
   })
 
   // Complete
-  const completeStatus = isComplete.value ? 'done' : (isFinalizing.value ? 'active' : 'todo')
+  const completeStatus: WorkflowStep['status'] = isComplete.value ? 'done' : (isFinalizing.value ? 'active' : 'todo')
   steps.push({
     key: 'complete',
     noLabel: 'OK',
@@ -1823,15 +1880,15 @@ const workflowSteps = computed(() => {
 })
 
 // Methods
-const addLog = (msg) => {
+const addLog = (msg: string) => {
   emit('add-log', msg)
 }
 
-const isSectionCompleted = (sectionIndex) => {
+const isSectionCompleted = (sectionIndex: number): boolean => {
   return !!generatedSections.value[sectionIndex]
 }
 
-const formatTime = (timestamp) => {
+const formatTime = (timestamp: string | null | undefined): string => {
   if (!timestamp) return ''
   try {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
@@ -1845,7 +1902,7 @@ const formatTime = (timestamp) => {
   }
 }
 
-const formatParams = (params) => {
+const formatParams = (params: unknown): string => {
   if (!params) return ''
   try {
     return JSON.stringify(params, null, 2)
@@ -1854,19 +1911,19 @@ const formatParams = (params) => {
   }
 }
 
-const formatResultSize = (length) => {
+const formatResultSize = (length: number | undefined): string => {
   if (!length) return ''
   if (length < 1000) return `${length} chars`
   return `${(length / 1000).toFixed(1)}k chars`
 }
 
-const truncateText = (text, maxLen) => {
+const truncateText = (text: string | null | undefined, maxLen: number): string => {
   if (!text) return ''
   if (text.length <= maxLen) return text
   return text.substring(0, maxLen) + '...'
 }
 
-const renderMarkdown = (content) => {
+const renderMarkdown = (content: string | null | undefined): string => {
   if (!content) return ''
   
   // 去掉开头的二级标题（## xxx），因为章节标题已在外层显示
@@ -1971,7 +2028,7 @@ const renderMarkdown = (content) => {
   return html
 }
 
-const getTimelineItemClass = (log, idx, total) => {
+const getTimelineItemClass = (log: AgentLog, idx: number, total: number) => {
   const isLatest = idx === total - 1 && !isComplete.value
   const isMilestone = log.action === 'section_complete' || log.action === 'report_complete'
   return {
@@ -1982,15 +2039,15 @@ const getTimelineItemClass = (log, idx, total) => {
   }
 }
 
-const getConnectorClass = (log, idx, total) => {
+const getConnectorClass = (log: AgentLog, idx: number, total: number): string => {
   const isLatest = idx === total - 1 && !isComplete.value
   if (isLatest) return 'dot-active'
   if (log.action === 'section_complete' || log.action === 'report_complete') return 'dot-done'
   return 'dot-muted'
 }
 
-const getActionLabel = (action) => {
-  const labels = {
+const getActionLabel = (action: string): string => {
+  const labels: Record<string, string> = {
     'report_start': 'Report Started',
     'planning_start': 'Planning',
     'planning_complete': 'Plan Complete',
@@ -2005,7 +2062,7 @@ const getActionLabel = (action) => {
   return labels[action] || action
 }
 
-const getLogLevelClass = (log) => {
+const getLogLevelClass = (log: string): string => {
   if (log.includes('ERROR') || log.includes('错误')) return 'error'
   if (log.includes('WARNING') || log.includes('警告')) return 'warning'
   // INFO 使用默认颜色，不标记为 success
@@ -2013,8 +2070,8 @@ const getLogLevelClass = (log) => {
 }
 
 // Polling
-let agentLogTimer = null
-let consoleLogTimer = null
+let agentLogTimer: ReturnType<typeof setInterval> | null = null
+let consoleLogTimer: ReturnType<typeof setInterval> | null = null
 
 const fetchAgentLog = async () => {
   if (!props.reportId) return
@@ -2034,15 +2091,15 @@ const fetchAgentLog = async () => {
           }
           
           if (log.action === 'section_start') {
-            currentSectionIndex.value = log.section_index
+            currentSectionIndex.value = log.section_index ?? null
           }
 
           // section_complete - 章节生成完成
           if (log.action === 'section_complete') {
             if (log.details?.content) {
-              generatedSections.value[log.section_index] = log.details.content
+              generatedSections.value[log.section_index ?? 0] = log.details.content
               // 自动展开刚生成的章节
-              expandedContent.value.add(log.section_index - 1)
+              expandedContent.value.add((log.section_index ?? 1) - 1)
               currentSectionIndex.value = null
             }
           }
@@ -2056,11 +2113,11 @@ const fetchAgentLog = async () => {
           }
           
           if (log.action === 'report_start') {
-            startTime.value = new Date(log.timestamp)
+            startTime.value = Date.now()
           }
         })
         
-        agentLogLine.value = res.data.from_line + newLogs.length
+        agentLogLine.value = (res.data.from_line ?? agentLogLine.value) + newLogs.length
         
         nextTick(() => {
           if (rightPanel.value) {
@@ -2080,7 +2137,7 @@ const fetchAgentLog = async () => {
 }
 
 // 提取最终答案内容 - 从 LLM response 中提取章节内容
-const extractFinalContent = (response) => {
+const extractFinalContent = (response: string | null | undefined): string | null => {
   if (!response) return null
   
   // 尝试提取 <final_answer> 标签内的内容
@@ -2135,7 +2192,7 @@ const fetchConsoleLog = async () => {
       
       if (newLogs.length > 0) {
         consoleLogs.value.push(...newLogs)
-        consoleLogLine.value = res.data.from_line + newLogs.length
+        consoleLogLine.value = (res.data.from_line ?? consoleLogLine.value) + newLogs.length
         
         nextTick(() => {
           if (logContent.value) {

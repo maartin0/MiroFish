@@ -1,22 +1,24 @@
-/**
- * 临时存储待上传的文件和需求
- * 用于首页点击启动引擎后立即跳转，在Process页面再进行API调用
- */
 import { reactive } from 'vue'
 
-const state = reactive({
+interface PendingUploadState {
+  files: File[]
+  simulationRequirement: string
+  isPending: boolean
+}
+
+const state = reactive<PendingUploadState>({
   files: [],
   simulationRequirement: '',
   isPending: false
 })
 
-export function setPendingUpload(files, requirement) {
+export function setPendingUpload(files: File[], requirement: string): void {
   state.files = files
   state.simulationRequirement = requirement
   state.isPending = true
 }
 
-export function getPendingUpload() {
+export function getPendingUpload(): PendingUploadState {
   return {
     files: state.files,
     simulationRequirement: state.simulationRequirement,
@@ -24,7 +26,7 @@ export function getPendingUpload() {
   }
 }
 
-export function clearPendingUpload() {
+export function clearPendingUpload(): void {
   state.files = []
   state.simulationRequirement = ''
   state.isPending = false

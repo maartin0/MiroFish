@@ -96,7 +96,7 @@
                 v-for="rel in projectData.ontology.edge_types" 
                 :key="rel.name" 
                 class="entity-tag clickable"
-                @click="selectOntologyItem(rel, 'relation')"
+                @click="selectOntologyItem(rel, 'edge')"
               >
                 {{ rel.name }}
               </span>
@@ -186,37 +186,42 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed, ref, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { createSimulation } from '../api/simulation'
+import type { ProjectData, GraphData, OntologyItem, SystemLog, EntityTypeDefinition, EdgeTypeDefinition } from '../types'
 
 const router = useRouter()
 
-const props = defineProps({
-  currentPhase: { type: Number, default: 0 },
-  projectData: Object,
-  ontologyProgress: Object,
-  buildProgress: Object,
-  graphData: Object,
-  systemLogs: { type: Array, default: () => [] }
+interface Props {
+  currentPhase?: number
+  projectData?: ProjectData
+  ontologyProgress?: { message?: string } | null
+  buildProgress?: { progress?: number } | null
+  graphData?: GraphData
+  systemLogs?: SystemLog[]
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  currentPhase: 0,
+  systemLogs: () => []
 })
 
-defineEmits(['next-step'])
+defineEmits<{ 'next-step': [] }>()
 
-const selectedOntologyItem = ref(null)
-const logContent = ref(null)
+const selectedOntologyItem = ref<OntologyItem | null>(null)
+const logContent = ref<HTMLElement | null>(null)
 const creatingSimulation = ref(false)
 
-// 进入环境搭建 - 创建 simulation 并跳转
 const handleEnterEnvSetup = async () => {
   if (!props.projectData?.project_id || !props.projectData?.graph_id) {
     console.error('Missing project or graph information')
     return
   }
-  
+
   creatingSimulation.value = true
-  
+
   try {
     const res = await createSimulation({
       project_id: props.projectData.project_id,
@@ -224,44 +229,39 @@ const handleEnterEnvSetup = async () => {
       enable_twitter: true,
       enable_reddit: true
     })
-    
+
     if (res.success && res.data?.simulation_id) {
-      // 跳转到 simulation 页面
-      router.push({
-        name: 'Simulation',
-        params: { simulationId: res.data.simulation_id }
-      })
+      router.push({ name: 'Simulation', params: { simulationId: res.data.simulation_id } })
     } else {
       console.error('Failed to create simulation:', res.error)
       alert('Failed to create simulation: ' + (res.error || 'Unknown error'))
     }
   } catch (err) {
     console.error('Simulation creation exception:', err)
-    alert('Simulation creation exception: ' + err.message)
+    alert('Simulation creation exception: ' + (err instanceof Error ? err.message : String(err)))
   } finally {
     creatingSimulation.value = false
   }
 }
 
-const selectOntologyItem = (item, type) => {
+const selectOntologyItem = (item: EntityTypeDefinition | EdgeTypeDefinition, type: 'entity' | 'edge') => {
   selectedOntologyItem.value = { ...item, itemType: type }
 }
 
 const graphStats = computed(() => {
-  const nodes = props.graphData?.node_count || props.graphData?.nodes?.length || 0
-  const edges = props.graphData?.edge_count || props.graphData?.edges?.length || 0
-  const types = props.projectData?.ontology?.entity_types?.length || 0
+  const nodes = props.graphData?.node_count ?? props.graphData?.nodes?.length ?? 0
+  const edges = props.graphData?.edge_count ?? props.graphData?.edges?.length ?? 0
+  const types = props.projectData?.ontology?.entity_types?.length ?? 0
   return { nodes, edges, types }
 })
 
-const formatDate = (dateStr) => {
+const formatDate = (dateStr: string | undefined): string => {
   if (!dateStr) return '--:--:--'
   const d = new Date(dateStr)
   return d.toLocaleTimeString('en-US', { hour12: false }) + '.' + d.getMilliseconds()
 }
 
-// Auto-scroll logs
-watch(() => props.systemLogs.length, () => {
+watch(() => props.systemLogs?.length, () => {
   nextTick(() => {
     if (logContent.value) {
       logContent.value.scrollTop = logContent.value.scrollHeight

@@ -1,6 +1,8 @@
+import type { WorkflowSession } from '../types'
+
 const SESSION_KEY = 'mirofish_session'
 
-const ROUTE_LABELS = {
+const ROUTE_LABELS: Record<string, string> = {
   Process: 'Step 1-2: Graph Build',
   Simulation: 'Step 2: Environment Setup',
   SimulationRun: 'Step 3: Run Simulation',
@@ -8,9 +10,13 @@ const ROUTE_LABELS = {
   Interaction: 'Step 5: Deep Interaction',
 }
 
-export const saveSession = (routeName, params, query = {}) => {
+export const saveSession = (
+  routeName: string,
+  params: Record<string, string>,
+  query: Record<string, string> = {}
+): void => {
   if (!ROUTE_LABELS[routeName]) return
-  const session = {
+  const session: WorkflowSession = {
     routeName,
     params,
     query,
@@ -24,16 +30,16 @@ export const saveSession = (routeName, params, query = {}) => {
   }
 }
 
-export const getSession = () => {
+export const getSession = (): WorkflowSession | null => {
   try {
     const raw = localStorage.getItem(SESSION_KEY)
-    return raw ? JSON.parse(raw) : null
+    return raw ? (JSON.parse(raw) as WorkflowSession) : null
   } catch {
     return null
   }
 }
 
-export const clearSession = () => {
+export const clearSession = (): void => {
   try {
     localStorage.removeItem(SESSION_KEY)
   } catch {

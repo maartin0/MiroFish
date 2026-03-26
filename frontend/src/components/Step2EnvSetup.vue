@@ -148,7 +148,7 @@
                 </div>
                 <div class="config-item">
                   <span class="config-item-label">Total Rounds</span>
-                  <span class="config-item-value">{{ Math.floor((simulationConfig.time_config?.total_simulation_hours * 60 / simulationConfig.time_config?.minutes_per_round)) || '-' }}</span>
+                  <span class="config-item-value">{{ Math.floor(((simulationConfig.time_config?.total_simulation_hours ?? 0) * 60 / (simulationConfig.time_config?.minutes_per_round ?? 1))) || '-' }}</span>
                 </div>
                 <div class="config-item">
                   <span class="config-item-label">Active/Hour</span>
@@ -244,14 +244,14 @@
                       <div class="param-item">
                         <span class="param-label">Activity</span>
                         <span class="param-value with-bar">
-                          <span class="mini-bar" :style="{ width: (agent.activity_level * 100) + '%' }"></span>
-                          {{ (agent.activity_level * 100).toFixed(0) }}%
+                          <span class="mini-bar" :style="{ width: ((agent.activity_level ?? 0) * 100) + '%' }"></span>
+                          {{ ((agent.activity_level ?? 0) * 100).toFixed(0) }}%
                         </span>
                       </div>
                       <div class="param-item">
                         <span class="param-label">Sentiment</span>
-                        <span class="param-value" :class="agent.sentiment_bias > 0 ? 'positive' : agent.sentiment_bias < 0 ? 'negative' : 'neutral'">
-                          {{ agent.sentiment_bias > 0 ? '+' : '' }}{{ agent.sentiment_bias?.toFixed(1) }}
+                        <span class="param-value" :class="(agent.sentiment_bias ?? 0) > 0 ? 'positive' : (agent.sentiment_bias ?? 0) < 0 ? 'negative' : 'neutral'">
+                          {{ (agent.sentiment_bias ?? 0) > 0 ? '+' : '' }}{{ agent.sentiment_bias?.toFixed(1) }}
                         </span>
                       </div>
                       <div class="param-item">
@@ -397,7 +397,7 @@
 
             <!-- 初始帖子流 -->
             <div class="initial-posts-section">
-              <span class="box-label">Initial Activation Sequence ({{ simulationConfig.event_config.initial_posts.length }})</span>
+              <span class="box-label">Initial Activation Sequence ({{ simulationConfig.event_config.initial_posts?.length ?? 0 }})</span>
               <div class="posts-timeline">
                 <div v-for="(post, idx) in simulationConfig.event_config.initial_posts" :key="idx" class="timeline-item">
                   <div class="timeline-marker"></div>
@@ -406,7 +406,7 @@
                       <span class="post-role">{{ post.poster_type }}</span>
                       <span class="post-agent-info">
                         <span class="post-id">Agent {{ post.poster_agent_id }}</span>
-                        <span class="post-username">@{{ getAgentUsername(post.poster_agent_id) }}</span>
+                        <span class="post-username">@{{ getAgentUsername(post.poster_agent_id ?? 0) }}</span>
                       </span>
                     </div>
                     <p class="post-text">{{ post.content }}</p>
@@ -552,7 +552,7 @@
             </div>
             <div class="info-item">
               <span class="info-label">Apparent Gender</span>
-              <span class="info-value">{{ { male: 'Male', female: 'Female', other: 'Other' }[selectedProfile.gender] || selectedProfile.gender }}</span>
+              <span class="info-value">{{ ({ male: 'Male', female: 'Female', other: 'Other' } as Record<string, string>)[selectedProfile.gender ?? ''] || selectedProfile.gender }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">Country/Region</span>
@@ -631,36 +631,43 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { 
-  prepareSimulation, 
-  getPrepareStatus, 
+import {
+  prepareSimulation,
+  getPrepareStatus,
   getSimulationProfilesRealtime,
-  getSimulationConfig,
-  getSimulationConfigRealtime 
+  getSimulationConfigRealtime
 } from '../api/simulation'
+import type { ProjectData, GraphData, SystemLog, SimulationProfile, SimulationConfig } from '../types'
 
-const props = defineProps({
-  simulationId: String,  // 从父组件传入
-  projectData: Object,
-  graphData: Object,
-  systemLogs: Array
-})
+interface Props {
+  simulationId?: string
+  projectData?: ProjectData
+  graphData?: GraphData
+  systemLogs?: SystemLog[]
+}
 
-const emit = defineEmits(['go-back', 'next-step', 'add-log', 'update-status'])
+const props = withDefaults(defineProps<Props>(), { systemLogs: () => [] })
+
+const emit = defineEmits<{
+  'go-back': []
+  'next-step': [params: { maxRounds?: number }]
+  'add-log': [msg: string]
+  'update-status': [status: 'processing' | 'completed' | 'error']
+}>()
 
 // State
-const phase = ref(0) // 0: 初始化, 1: 生成人设, 2: 生成配置, 3: 完成
-const taskId = ref(null)
+const phase = ref(0)
+const taskId = ref<string | null>(null)
 const prepareProgress = ref(0)
 const currentStage = ref('')
 const progressMessage = ref('')
-const profiles = ref([])
-const entityTypes = ref([])
-const expectedTotal = ref(null)
-const simulationConfig = ref(null)
-const selectedProfile = ref(null)
+const profiles = ref<SimulationProfile[]>([])
+const entityTypes = ref<string[]>([])
+const expectedTotal = ref<number | null>(null)
+const simulationConfig = ref<SimulationConfig | null>(null)
+const selectedProfile = ref<SimulationProfile | null>(null)
 const showProfilesDetail = ref(true)
 
 // 日志去重：记录上一次输出的关键信息
@@ -668,9 +675,9 @@ let lastLoggedMessage = ''
 let lastLoggedProfileCount = 0
 let lastLoggedConfigStage = ''
 
-// 模拟轮数配置
-const useCustomRounds = ref(false) // 默认使用自动配置轮数
-const customMaxRounds = ref(40)   // 默认推荐40轮
+// Simulation rounds config
+const useCustomRounds = ref(false)
+const customMaxRounds = ref(40)
 
 // Watch stage to update phase
 watch(currentStage, (newStage) => {
@@ -703,10 +710,10 @@ const autoGeneratedRounds = computed(() => {
   return Math.max(calculatedRounds, 40)
 })
 
-// Polling timer
-let pollTimer = null
-let profilesTimer = null
-let configTimer = null
+// Polling timers
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let profilesTimer: ReturnType<typeof setInterval> | null = null
+let configTimer: ReturnType<typeof setInterval> | null = null
 
 // Computed
 const displayProfiles = computed(() => {
@@ -716,8 +723,7 @@ const displayProfiles = computed(() => {
   return profiles.value.slice(0, 6)
 })
 
-// 根据agent_id获取对应的username
-const getAgentUsername = (agentId) => {
+const getAgentUsername = (agentId: number): string => {
   if (profiles.value && profiles.value.length > agentId && agentId >= 0) {
     const profile = profiles.value[agentId]
     return profile?.username || `agent_${agentId}`
@@ -733,14 +739,14 @@ const totalTopicsCount = computed(() => {
 })
 
 // Methods
-const addLog = (msg) => {
+const addLog = (msg: string) => {
   emit('add-log', msg)
 }
 
 // 处理开始模拟按钮点击
 const handleStartSimulation = () => {
   // 构建传递给父组件的参数
-  const params = {}
+  const params: { maxRounds?: number } = {}
   
   if (useCustomRounds.value) {
     // 用户自定义轮数，传递 max_rounds 参数
@@ -754,14 +760,14 @@ const handleStartSimulation = () => {
   emit('next-step', params)
 }
 
-const truncateBio = (bio) => {
+const truncateBio = (bio: string): string => {
   if (bio.length > 80) {
     return bio.substring(0, 80) + '...'
   }
   return bio
 }
 
-const selectProfile = (profile) => {
+const selectProfile = (profile: SimulationProfile) => {
   selectedProfile.value = profile
 }
 
@@ -816,7 +822,7 @@ const startPrepareSimulation = async () => {
       emit('update-status', 'error')
     }
   } catch (err) {
-    addLog(`Preparation exception: ${err.message}`)
+    addLog(`Preparation exception: ${err instanceof Error ? err.message : String(err)}`)
     emit('update-status', 'error')
   }
 }
@@ -924,7 +930,7 @@ const fetchProfilesRealtime = async () => {
       profiles.value.forEach(p => {
         if (p.entity_type) types.add(p.entity_type)
       })
-      entityTypes.value = Array.from(types)
+      entityTypes.value = Array.from(types) as string[]
       
       // 输出 Profile 生成进度日志（仅当数量变化时）
       const currentCount = profiles.value.length
@@ -1027,7 +1033,7 @@ const loadPreparedData = async () => {
 
   // 获取配置（使用实时接口）
   try {
-    const res = await getSimulationConfigRealtime(props.simulationId)
+    const res = await getSimulationConfigRealtime(props.simulationId!)
     if (res.success && res.data) {
       if (res.data.config_generated && res.data.config) {
         simulationConfig.value = res.data.config
@@ -1050,13 +1056,12 @@ const loadPreparedData = async () => {
       }
     }
   } catch (err) {
-    addLog(`Failed to load config: ${err.message}`)
+    addLog(`Failed to load config: ${err instanceof Error ? err.message : String(err)}`)
     emit('update-status', 'error')
   }
 }
 
-// Scroll log to bottom
-const logContent = ref(null)
+const logContent = ref<HTMLElement | null>(null)
 watch(() => props.systemLogs?.length, () => {
   nextTick(() => {
     if (logContent.value) {

@@ -63,13 +63,14 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
 import Step2EnvSetup from '../components/Step2EnvSetup.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation, stopSimulation, getEnvStatus, closeSimulationEnv } from '../api/simulation'
+import type { ProjectData, GraphData, SystemLog } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -83,12 +84,12 @@ const props = defineProps({
 const viewMode = ref('split')
 
 // Data State
-const currentSimulationId = ref(route.params.simulationId)
-const projectData = ref(null)
-const graphData = ref(null)
+const currentSimulationId = ref(route.params.simulationId as string)
+const projectData = ref<ProjectData | undefined>(undefined)
+const graphData = ref<GraphData | undefined>(undefined)
 const graphLoading = ref(false)
-const systemLogs = ref([])
-const currentStatus = ref('processing') // processing | completed | error
+const systemLogs = ref<SystemLog[]>([])
+const currentStatus = ref<'processing' | 'completed' | 'error'>('processing')
 
 // --- Computed Layout Styles ---
 const leftPanelStyle = computed(() => {
@@ -115,7 +116,7 @@ const statusText = computed(() => {
 })
 
 // --- Helpers ---
-const addLog = (msg) => {
+const addLog = (msg: string) => {
   const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + new Date().getMilliseconds().toString().padStart(3, '0')
   systemLogs.value.push({ time, msg })
   if (systemLogs.value.length > 100) {
@@ -123,12 +124,12 @@ const addLog = (msg) => {
   }
 }
 
-const updateStatus = (status) => {
+const updateStatus = (status: 'processing' | 'completed' | 'error') => {
   currentStatus.value = status
 }
 
 // --- Layout Methods ---
-const toggleMaximize = (target) => {
+const toggleMaximize = (target: string) => {
   if (viewMode.value === target) {
     viewMode.value = 'split'
   } else {
@@ -145,7 +146,7 @@ const handleGoBack = () => {
   }
 }
 
-const handleNextStep = (params = {}) => {
+const handleNextStep = (params: { maxRounds?: number } = {}) => {
   addLog('Entering Step 3: Starting simulation')
 
   // 记录模拟轮数配置
@@ -156,16 +157,16 @@ const handleNextStep = (params = {}) => {
   }
   
   // 构建路由参数
-  const routeParams = {
+  const routeParams: { name: string; params: Record<string, string>; query?: Record<string, string | number> } = {
     name: 'SimulationRun',
     params: { simulationId: currentSimulationId.value }
   }
-  
+
   // 如果有自定义轮数，通过 query 参数传递
   if (params.maxRounds) {
     routeParams.query = { maxRounds: params.maxRounds }
   }
-  
+
   // 跳转到 Step 3 页面
   router.push(routeParams)
 }
@@ -201,7 +202,7 @@ const checkAndStopRunningSimulation = async () => {
           await forceStopSimulation()
         }
       } catch (closeErr) {
-        addLog(`Error closing simulation environment: ${closeErr.message}`)
+        addLog(`Error closing simulation environment: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`)
         // 如果优雅关闭异常，尝试强制停止
         await forceStopSimulation()
       }
@@ -231,19 +232,19 @@ const forceStopSimulation = async () => {
       addLog(`Failed to force-stop simulation: ${stopRes.error || 'Unknown error'}`)
     }
   } catch (err) {
-    addLog(`Error force-stopping simulation: ${err.message}`)
+    addLog(`Error force-stopping simulation: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
 const loadSimulationData = async () => {
   try {
     addLog(`Loading simulation data: ${currentSimulationId.value}`)
-    
+
     // 获取 simulation 信息
     const simRes = await getSimulation(currentSimulationId.value)
     if (simRes.success && simRes.data) {
       const simData = simRes.data
-      
+
       // 获取 project 信息
       if (simData.project_id) {
         const projRes = await getProject(simData.project_id)
@@ -261,11 +262,11 @@ const loadSimulationData = async () => {
       addLog(`Failed to load simulation data: ${simRes.error || 'Unknown error'}`)
     }
   } catch (err) {
-    addLog(`Load error: ${err.message}`)
+    addLog(`Load error: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
-const loadGraph = async (graphId) => {
+const loadGraph = async (graphId: string) => {
   graphLoading.value = true
   try {
     const res = await getGraphData(graphId)
@@ -274,7 +275,7 @@ const loadGraph = async (graphId) => {
       addLog('Graph data loaded')
     }
   } catch (err) {
-    addLog(`Failed to load graph: ${err.message}`)
+    addLog(`Failed to load graph: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     graphLoading.value = false
   }

@@ -410,63 +410,67 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { chatWithReport, getReport, getAgentLog } from '../api/report'
 import { interviewAgents, getSimulationProfilesRealtime } from '../api/simulation'
+import type { SimulationProfile, ChatMessage, SurveyResult, ReportOutline } from '../types'
 
-const props = defineProps({
-  reportId: String,
-  simulationId: String
-})
+const props = defineProps<{
+  reportId?: string
+  simulationId?: string
+}>()
 
-const emit = defineEmits(['add-log', 'update-status'])
+const emit = defineEmits<{
+  'add-log': [msg: string]
+  'update-status': [status: string]
+}>()
 
 // State
 const activeTab = ref('chat')
 const chatTarget = ref('report_agent')
 const showAgentDropdown = ref(false)
-const selectedAgent = ref(null)
-const selectedAgentIndex = ref(null)
+const selectedAgent = ref<SimulationProfile | null>(null)
+const selectedAgentIndex = ref<number | null>(null)
 const showFullProfile = ref(true)
 const showToolsDetail = ref(true)
 
 // Chat State
 const chatInput = ref('')
-const chatHistory = ref([])
-const chatHistoryCache = ref({}) // 缓存所有对话记录: { 'report_agent': [], 'agent_0': [], 'agent_1': [], ... }
+const chatHistory = ref<ChatMessage[]>([])
+const chatHistoryCache = ref<Record<string, ChatMessage[]>>({}) // cache all chat records
 const isSending = ref(false)
-const chatMessages = ref(null)
-const chatInputRef = ref(null)
+const chatMessages = ref<HTMLElement | null>(null)
+const chatInputRef = ref<HTMLTextAreaElement | null>(null)
 
 // Survey State
-const selectedAgents = ref(new Set())
+const selectedAgents = ref<Set<number>>(new Set())
 const surveyQuestion = ref('')
-const surveyResults = ref([])
+const surveyResults = ref<SurveyResult[]>([])
 const isSurveying = ref(false)
 
 // Report Data
-const reportOutline = ref(null)
-const generatedSections = ref({})
-const collapsedSections = ref(new Set())
-const currentSectionIndex = ref(null)
-const profiles = ref([])
+const reportOutline = ref<ReportOutline | null>(null)
+const generatedSections = ref<Record<number, string>>({})
+const collapsedSections = ref<Set<number>>(new Set())
+const currentSectionIndex = ref<number | null>(null)
+const profiles = ref<SimulationProfile[]>([])
 
 // Helper Methods
-const isSectionCompleted = (sectionIndex) => {
+const isSectionCompleted = (sectionIndex: number): boolean => {
   return !!generatedSections.value[sectionIndex]
 }
 
 // Refs
-const leftPanel = ref(null)
-const rightPanel = ref(null)
+const leftPanel = ref<HTMLElement | null>(null)
+const rightPanel = ref<HTMLElement | null>(null)
 
 // Methods
-const addLog = (msg) => {
+const addLog = (msg: string) => {
   emit('add-log', msg)
 }
 
-const toggleSectionCollapse = (idx) => {
+const toggleSectionCollapse = (idx: number) => {
   if (!generatedSections.value[idx + 1]) return
   const newSet = new Set(collapsedSections.value)
   if (newSet.has(idx)) {
@@ -477,7 +481,7 @@ const toggleSectionCollapse = (idx) => {
   collapsedSections.value = newSet
 }
 
-const selectChatTarget = (target) => {
+const selectChatTarget = (target: string) => {
   chatTarget.value = target
   if (target === 'report_agent') {
     showAgentDropdown.value = false
@@ -524,7 +528,7 @@ const toggleAgentDropdown = () => {
   }
 }
 
-const selectAgent = (agent, idx) => {
+const selectAgent = (agent: SimulationProfile, idx: number) => {
   // 保存当前对话记录
   saveChatHistory()
   
@@ -538,12 +542,12 @@ const selectAgent = (agent, idx) => {
   addLog(`Selected conversation target: ${agent.username}`)
 }
 
-const formatTime = (timestamp) => {
+const formatTime = (timestamp: string | null | undefined): string => {
   if (!timestamp) return ''
   try {
-    return new Date(timestamp).toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
+    return new Date(timestamp).toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
       minute: '2-digit'
     })
   } catch {
@@ -551,7 +555,7 @@ const formatTime = (timestamp) => {
   }
 }
 
-const renderMarkdown = (content) => {
+const renderMarkdown = (content: string | null | undefined): string => {
   if (!content) return ''
   
   let processedContent = content.replace(/^##\s+.+\n+/, '')
@@ -662,10 +666,11 @@ const sendMessage = async () => {
       await sendToAgent(message)
     }
   } catch (err) {
-    addLog(`Send failed: ${err.message}`)
+    const errMsg = err instanceof Error ? err.message : String(err)
+    addLog(`Send failed: ${errMsg}`)
     chatHistory.value.push({
       role: 'assistant',
-      content: `Sorry, an error occurred: ${err.message}`,
+      content: `Sorry, an error occurred: ${errMsg}`,
       timestamp: new Date().toISOString()
     })
   } finally {
@@ -676,7 +681,7 @@ const sendMessage = async () => {
   }
 }
 
-const sendToReportAgent = async (message) => {
+const sendToReportAgent = async (message: string) => {
   addLog(`Sending to Report Agent: ${message.substring(0, 50)}...`)
   
   // Build chat history for API
@@ -689,15 +694,15 @@ const sendToReportAgent = async (message) => {
     }))
   
   const res = await chatWithReport({
-    simulation_id: props.simulationId,
+    simulation_id: props.simulationId!,
     message: message,
     chat_history: historyForApi
   })
-  
+
   if (res.success && res.data) {
     chatHistory.value.push({
       role: 'assistant',
-      content: res.data.response || res.data.answer || 'No response',
+      content: (res.data as any).response || (res.data as any).answer || 'No response',
       timestamp: new Date().toISOString()
     })
     addLog('Report Agent replied')
@@ -706,7 +711,7 @@ const sendToReportAgent = async (message) => {
   }
 }
 
-const sendToAgent = async (message) => {
+const sendToAgent = async (message: string) => {
   if (!selectedAgent.value || selectedAgentIndex.value === null) {
     throw new Error('Please select a simulated individual first')
   }
@@ -725,9 +730,9 @@ const sendToAgent = async (message) => {
   }
   
   const res = await interviewAgents({
-    simulation_id: props.simulationId,
+    simulation_id: props.simulationId!,
     interviews: [{
-      agent_id: selectedAgentIndex.value,
+      agent_id: String(selectedAgentIndex.value),
       prompt: prompt
     }]
   })
@@ -735,13 +740,14 @@ const sendToAgent = async (message) => {
   if (res.success && res.data) {
     // 正确的数据路径: res.data.result.results 是一个对象字典
     // 格式: {"twitter_0": {...}, "reddit_0": {...}} 或单平台 {"reddit_0": {...}}
-    const resultData = res.data.result || res.data
+    const rawData = res.data as any
+    const resultData = rawData.result || rawData
     const resultsDict = resultData.results || resultData
-    
+
     // 将对象字典转换为数组，优先获取 reddit 平台的回复
     let responseContent = null
     const agentId = selectedAgentIndex.value
-    
+
     if (typeof resultsDict === 'object' && !Array.isArray(resultsDict)) {
       // 优先使用 reddit 平台回复，其次 twitter
       const redditKey = `reddit_${agentId}`
@@ -779,7 +785,7 @@ const scrollToBottom = () => {
 }
 
 // Survey Methods
-const toggleAgentSelection = (idx) => {
+const toggleAgentSelection = (idx: number) => {
   const newSet = new Set(selectedAgents.value)
   if (newSet.has(idx)) {
     newSet.delete(idx)
@@ -790,7 +796,7 @@ const toggleAgentSelection = (idx) => {
 }
 
 const selectAllAgents = () => {
-  const newSet = new Set()
+  const newSet = new Set<number>()
   profiles.value.forEach((_, idx) => newSet.add(idx))
   selectedAgents.value = newSet
 }
@@ -812,14 +818,15 @@ const submitSurvey = async () => {
     }))
     
     const res = await interviewAgents({
-      simulation_id: props.simulationId,
-      interviews: interviews
+      simulation_id: props.simulationId!,
+      interviews: interviews.map(i => ({ agent_id: String(i.agent_id), prompt: i.prompt }))
     })
-    
+
     if (res.success && res.data) {
       // 正确的数据路径: res.data.result.results 是一个对象字典
       // 格式: {"twitter_0": {...}, "reddit_0": {...}, "twitter_1": {...}, ...}
-      const resultData = res.data.result || res.data
+      const rawData2 = res.data as any
+      const resultData = rawData2.result || rawData2
       const resultsDict = resultData.results || resultData
       
       // 将对象字典转换为数组格式
@@ -848,9 +855,9 @@ const submitSurvey = async () => {
         }
         
         surveyResultsList.push({
-          agent_id: agentIdx,
+          agent_id: String(agentIdx),
           agent_name: agent?.username || `Agent ${agentIdx}`,
-          profession: agent?.profession,
+          profession: agent?.profession || '',
           question: surveyQuestion.value.trim(),
           answer: responseContent
         })
@@ -862,7 +869,7 @@ const submitSurvey = async () => {
       throw new Error(res.error || 'Request failed')
     }
   } catch (err) {
-    addLog(`Survey send failed: ${err.message}`)
+    addLog(`Survey send failed: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     isSurveying.value = false
   }
@@ -882,7 +889,7 @@ const loadReportData = async () => {
       await loadAgentLogs()
     }
   } catch (err) {
-    addLog(`Failed to load report: ${err.message}`)
+    addLog(`Failed to load report: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
@@ -899,15 +906,15 @@ const loadAgentLogs = async () => {
           reportOutline.value = log.details.outline
         }
         
-        if (log.action === 'section_complete' && log.section_index < 100 && log.details?.content) {
-          generatedSections.value[log.section_index] = log.details.content
+        if (log.action === 'section_complete' && (log.section_index ?? 0) < 100 && log.details?.content) {
+          generatedSections.value[log.section_index ?? 0] = log.details.content
         }
       })
       
       addLog('Report data loaded')
     }
   } catch (err) {
-    addLog(`Failed to load report logs: ${err.message}`)
+    addLog(`Failed to load report logs: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
@@ -921,14 +928,14 @@ const loadProfiles = async () => {
       addLog(`Loaded ${profiles.value.length} simulated individuals`)
     }
   } catch (err) {
-    addLog(`Failed to load simulated individuals: ${err.message}`)
+    addLog(`Failed to load simulated individuals: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
 // Click outside to close dropdown
-const handleClickOutside = (e) => {
+const handleClickOutside = (e: MouseEvent) => {
   const dropdown = document.querySelector('.agent-dropdown')
-  if (dropdown && !dropdown.contains(e.target)) {
+  if (dropdown && !dropdown.contains(e.target as Node)) {
     showAgentDropdown.value = false
   }
 }

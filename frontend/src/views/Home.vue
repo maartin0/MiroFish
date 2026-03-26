@@ -214,16 +214,17 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import HistoryDatabase from '../components/HistoryDatabase.vue'
 import { getSession, clearSession } from '../store/workflowSession'
+import type { WorkflowSession } from '../types'
 
 const router = useRouter()
 
 // Session resume
-const activeSession = ref(null)
+const activeSession = ref<WorkflowSession | null>(null)
 
 const resumeSession = () => {
   if (!activeSession.value) return
@@ -244,12 +245,10 @@ onMounted(() => {
 })
 
 // 表单数据
-const formData = ref({
-  simulationRequirement: ''
-})
+const formData = ref({ simulationRequirement: '' })
 
 // 文件列表
-const files = ref([])
+const files = ref<File[]>([])
 
 // 状态
 const loading = ref(false)
@@ -257,7 +256,7 @@ const error = ref('')
 const isDragOver = ref(false)
 
 // 文件输入引用
-const fileInput = ref(null)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 // 计算属性:是否可以提交
 const canSubmit = computed(() => {
@@ -272,41 +271,42 @@ const triggerFileInput = () => {
 }
 
 // 处理文件选择
-const handleFileSelect = (event) => {
-  const selectedFiles = Array.from(event.target.files)
+const handleFileSelect = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const selectedFiles = Array.from(input.files ?? []) as File[]
   addFiles(selectedFiles)
 }
 
 // 处理拖拽相关
-const handleDragOver = (e) => {
+const handleDragOver = (e: DragEvent) => {
   if (!loading.value) {
     isDragOver.value = true
   }
 }
 
-const handleDragLeave = (e) => {
+const handleDragLeave = (e: DragEvent) => {
   isDragOver.value = false
 }
 
-const handleDrop = (e) => {
+const handleDrop = (e: DragEvent) => {
   isDragOver.value = false
   if (loading.value) return
-  
-  const droppedFiles = Array.from(e.dataTransfer.files)
+
+  const droppedFiles = Array.from(e.dataTransfer?.files ?? []) as File[]
   addFiles(droppedFiles)
 }
 
 // 添加文件
-const addFiles = (newFiles) => {
+const addFiles = (newFiles: File[]) => {
   const validFiles = newFiles.filter(file => {
-    const ext = file.name.split('.').pop().toLowerCase()
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
     return ['pdf', 'md', 'txt'].includes(ext)
   })
   files.value.push(...validFiles)
 }
 
 // 移除文件
-const removeFile = (index) => {
+const removeFile = (index: number) => {
   files.value.splice(index, 1)
 }
 

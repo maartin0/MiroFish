@@ -66,13 +66,14 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
 import Step3Simulation from '../components/Step3Simulation.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation, getSimulationConfig, stopSimulation, closeSimulationEnv, getEnvStatus } from '../api/simulation'
+import type { ProjectData, GraphData, SystemLog } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -86,15 +87,14 @@ const props = defineProps({
 const viewMode = ref('split')
 
 // Data State
-const currentSimulationId = ref(route.params.simulationId)
-// 直接在初始化时从 query 参数获取 maxRounds，确保子组件能立即获取到值
-const maxRounds = ref(route.query.maxRounds ? parseInt(route.query.maxRounds) : null)
-const minutesPerRound = ref(30) // 默认每轮30分钟
-const projectData = ref(null)
-const graphData = ref(null)
+const currentSimulationId = ref(route.params.simulationId as string)
+const maxRounds = ref<number | null>(route.query.maxRounds ? parseInt(route.query.maxRounds as string) : null)
+const minutesPerRound = ref(30)
+const projectData = ref<ProjectData | undefined>(undefined)
+const graphData = ref<GraphData | undefined>(undefined)
 const graphLoading = ref(false)
-const systemLogs = ref([])
-const currentStatus = ref('processing') // processing | completed | error
+const systemLogs = ref<SystemLog[]>([])
+const currentStatus = ref<'processing' | 'completed' | 'error'>('processing')
 
 // --- Computed Layout Styles ---
 const leftPanelStyle = computed(() => {
@@ -123,7 +123,7 @@ const statusText = computed(() => {
 const isSimulating = computed(() => currentStatus.value === 'processing')
 
 // --- Helpers ---
-const addLog = (msg) => {
+const addLog = (msg: string) => {
   const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + new Date().getMilliseconds().toString().padStart(3, '0')
   systemLogs.value.push({ time, msg })
   if (systemLogs.value.length > 200) {
@@ -131,12 +131,12 @@ const addLog = (msg) => {
   }
 }
 
-const updateStatus = (status) => {
+const updateStatus = (status: 'processing' | 'completed' | 'error') => {
   currentStatus.value = status
 }
 
 // --- Layout Methods ---
-const toggleMaximize = (target) => {
+const toggleMaximize = (target: string) => {
   if (viewMode.value === target) {
     viewMode.value = 'split'
   } else {
@@ -169,7 +169,7 @@ const handleGoBack = async () => {
           await stopSimulation({ simulation_id: currentSimulationId.value })
           addLog('✓ Simulation force-stopped')
         } catch (stopErr) {
-          addLog(`Force stop failed: ${stopErr.message}`)
+          addLog(`Force stop failed: ${stopErr instanceof Error ? stopErr.message : String(stopErr)}`)
         }
       }
     } else {
@@ -180,12 +180,12 @@ const handleGoBack = async () => {
           await stopSimulation({ simulation_id: currentSimulationId.value })
           addLog('✓ Simulation stopped')
         } catch (err) {
-          addLog(`Failed to stop simulation: ${err.message}`)
+          addLog(`Failed to stop simulation: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
     }
   } catch (err) {
-    addLog(`Failed to check simulation status: ${err.message}`)
+    addLog(`Failed to check simulation status: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   // 返回到 Step 2 (环境搭建)
@@ -236,11 +236,11 @@ const loadSimulationData = async () => {
       addLog(`Failed to load simulation data: ${simRes.error || 'Unknown error'}`)
     }
   } catch (err) {
-    addLog(`Load error: ${err.message}`)
+    addLog(`Load error: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
-const loadGraph = async (graphId) => {
+const loadGraph = async (graphId: string) => {
   // 当正在模拟时，自动刷新不显示全屏 loading，以免闪烁
   // 手动刷新或初始加载时显示 loading
   if (!isSimulating.value) {
@@ -256,7 +256,7 @@ const loadGraph = async (graphId) => {
       }
     }
   } catch (err) {
-    addLog(`Failed to load graph: ${err.message}`)
+    addLog(`Failed to load graph: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     graphLoading.value = false
   }
@@ -269,7 +269,7 @@ const refreshGraph = () => {
 }
 
 // --- Auto Refresh Logic ---
-let graphRefreshTimer = null
+let graphRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const startGraphRefresh = () => {
   if (graphRefreshTimer) return

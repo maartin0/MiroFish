@@ -61,7 +61,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GraphPanel from '../components/GraphPanel.vue'
@@ -69,6 +69,7 @@ import Step4Report from '../components/Step4Report.vue'
 import { getProject, getGraphData } from '../api/graph'
 import { getSimulation } from '../api/simulation'
 import { getReport } from '../api/report'
+import type { ProjectData, GraphData, SystemLog } from '../types'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,13 +83,13 @@ const props = defineProps({
 const viewMode = ref('workbench')
 
 // Data State
-const currentReportId = ref(route.params.reportId)
-const simulationId = ref(null)
-const projectData = ref(null)
-const graphData = ref(null)
+const currentReportId = ref(route.params.reportId as string)
+const simulationId = ref<string | undefined>(undefined)
+const projectData = ref<ProjectData | undefined>(undefined)
+const graphData = ref<GraphData | undefined>(undefined)
 const graphLoading = ref(false)
-const systemLogs = ref([])
-const currentStatus = ref('processing') // processing | completed | error
+const systemLogs = ref<SystemLog[]>([])
+const currentStatus = ref<'processing' | 'completed' | 'error'>('processing')
 
 // --- Computed Layout Styles ---
 const leftPanelStyle = computed(() => {
@@ -115,7 +116,7 @@ const statusText = computed(() => {
 })
 
 // --- Helpers ---
-const addLog = (msg) => {
+const addLog = (msg: string) => {
   const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + new Date().getMilliseconds().toString().padStart(3, '0')
   systemLogs.value.push({ time, msg })
   if (systemLogs.value.length > 200) {
@@ -123,12 +124,12 @@ const addLog = (msg) => {
   }
 }
 
-const updateStatus = (status) => {
+const updateStatus = (status: 'processing' | 'completed' | 'error') => {
   currentStatus.value = status
 }
 
 // --- Layout Methods ---
-const toggleMaximize = (target) => {
+const toggleMaximize = (target: string) => {
   if (viewMode.value === target) {
     viewMode.value = 'split'
   } else {
@@ -172,13 +173,13 @@ const loadReportData = async () => {
       addLog(`Failed to get report info: ${reportRes.error || 'Unknown error'}`)
     }
   } catch (err) {
-    addLog(`Load error: ${err.message}`)
+    addLog(`Load error: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
 
-const loadGraph = async (graphId) => {
+const loadGraph = async (graphId: string) => {
   graphLoading.value = true
-  
+
   try {
     const res = await getGraphData(graphId)
     if (res.success) {
@@ -186,7 +187,7 @@ const loadGraph = async (graphId) => {
       addLog('Graph data loaded')
     }
   } catch (err) {
-    addLog(`Failed to load graph: ${err.message}`)
+    addLog(`Failed to load graph: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     graphLoading.value = false
   }
@@ -200,8 +201,9 @@ const refreshGraph = () => {
 
 // Watch route params
 watch(() => route.params.reportId, (newId) => {
-  if (newId && newId !== currentReportId.value) {
-    currentReportId.value = newId
+  const id = Array.isArray(newId) ? newId[0] : newId
+  if (id && id !== currentReportId.value) {
+    currentReportId.value = id
     loadReportData()
   }
 }, { immediate: true })
